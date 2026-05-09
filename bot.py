@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 import config
 from scanner import analyze_image, analyze_text
+
 from keep_alive import keep_alive
 
 load_dotenv()
@@ -186,13 +187,11 @@ if message.content:
 # ==========================================
 @bot.tree.context_menu(name="🚨 สแกนสแปม (MaO)")
 async def despam_context_menu(interaction: discord.Interaction, message: discord.Message):
-    # ephemeral=True ทำให้ข้อความแจ้งเตือนเห็นแค่คนที่กดสั่ง
     if not config.MANUAL_MOD_ENABLED:
         await interaction.response.send_message(config.MSG_DESPAM_DISABLED, ephemeral=True)
         return
 
     image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
-
     if not image_attachments:
         await interaction.response.send_message(config.MSG_NO_IMAGE, ephemeral=True)
         return
