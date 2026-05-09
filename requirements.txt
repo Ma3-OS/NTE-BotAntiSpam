@@ -7,3 +7,4 @@ python-dotenv
 imagehash
 pytesseract
 Flask
+psutil
