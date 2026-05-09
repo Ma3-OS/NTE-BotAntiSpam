@@ -1,12 +1,10 @@
 # ใช้ Python 3.10 เวอร์ชันที่ขนาดเล็กและเสถียร
 FROM python:3.10-slim
 
-# ติดตั้ง Tesseract OCR และแพ็กเกจภาษา (ไทย + อังกฤษ) รวมถึงไลบรารีที่จำเป็นสำหรับภาพ
+# ติดตั้งเฉพาะ Tesseract OCR และแพ็กเกจภาษา (ไทย + อังกฤษ)
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-tha \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ตั้งค่าโฟลเดอร์ทำงานในเซิร์ฟเวอร์
