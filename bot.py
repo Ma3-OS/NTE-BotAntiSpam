@@ -1,19 +1,21 @@
 import discord
 from discord.ext import commands
+from discord import app_commands  # 🌟 เพิ่มตัวนี้สำหรับระบบ Slash/Context Menu
 import aiohttp
 import datetime
 import gc
 import os
+import time
 from dotenv import load_dotenv
 
 import config
 from scanner import analyze_image
 from keep_alive import keep_alive
-from messages import get_public_warning, get_dm_warning
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 LOG_CHANNEL_ID = os.getenv('LOG_CHANNEL_ID')
+OWNER_ID = os.getenv('OWNER_ID')
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -26,19 +28,52 @@ bot_session = None
 async def on_ready():
     global bot_session
     bot_session = aiohttp.ClientSession()
-    print(f'🛡️ Bot {bot.user} is ready! Type {config.COMMAND_PREFIX}despam to destroy spam.')
+    
+    # 🌟 จุดสำคัญ: สั่งให้บอทลงทะเบียนคำสั่งคลิกขวา/Slash ไปที่เซิร์ฟเวอร์ของ Discord
+    try:
+        synced = await bot.tree.sync()
+        print(f"🔄 [System] ลงทะเบียนคำสั่งกับ Discord สำเร็จ {len(synced)} คำสั่ง")
+    except Exception as e:
+        print(f"❌ [Error] ลงทะเบียนคำสั่งไม่สำเร็จ: {e}")
+
+    print(f'🛡️ Bot {bot.user} is ready!')
     print(f'⚙️ Auto-Mod: {"✅ ON" if config.AUTO_MOD_ENABLED else "❌ OFF"}')
-    print(f'⚙️ Manual-Mod: {"✅ ON" if config.MANUAL_MOD_ENABLED else "❌ OFF"}')
+    print(f'⚙️ Manual-Mod (Apps Menu): {"✅ ON" if config.MANUAL_MOD_ENABLED else "❌ OFF"}')
 
 async def punish_user(message_to_delete, target_user, reason, trigger_type):
     try: await message_to_delete.delete()
     except discord.Forbidden: pass
-    try: await message_to_delete.channel.send(get_public_warning(target_user.mention), delete_after=60)
-    except: pass
-    try: await target_user.send(get_dm_warning(message_to_delete.guild.name))
-    except: pass
-    try: await target_user.timeout(datetime.timedelta(days=1), reason=f"{trigger_type}: {reason}")
-    except: pass
+    
+    try: 
+        future_time = int(time.time() + config.WARNING_DELETE_DELAY)
+        countdown_tag = f"<t:{future_time}:R>" 
+
+        public_msg = config.PUBLIC_WARNING_MSG.format(
+            user_mention=target_user.mention,
+            owner_id=OWNER_ID,
+            delete_time=countdown_tag
+        )
+        await message_to_delete.channel.send(public_msg, delete_after=config.WARNING_DELETE_DELAY)
+    except Exception as e: 
+        print(f"⚠️ [Error] ส่งข้อความหน้าบ้านไม่ได้: {e}")
+    
+    try: 
+        dm_msg = config.DM_WARNING_MSG.format(
+            server_name=message_to_delete.guild.name,
+            timeout_days=config.TIMEOUT_DAYS,
+            owner_id=OWNER_ID
+        )
+        await target_user.send(dm_msg)
+    except: 
+        pass
+    
+    try: 
+        await target_user.timeout(datetime.timedelta(days=config.TIMEOUT_DAYS), reason=f"{trigger_type}: {reason}")
+        print(f"✅ [Action] Timeout {target_user.name} ไป {config.TIMEOUT_DAYS} วัน สำเร็จ!")
+    except discord.Forbidden:
+        print(f"❌ [Timeout Error] บอทไม่มีสิทธิ์! (ยศบอทต่ำกว่าเป้าหมาย หรือเป้าหมายเป็นแอดมิน)")
+    except Exception as e: 
+        print(f"❌ [Timeout Error] เกิดข้อผิดพลาดอื่น: {e}")
     
     if LOG_CHANNEL_ID:
         try:
@@ -49,85 +84,63 @@ async def punish_user(message_to_delete, target_user, reason, trigger_type):
                 embed.add_field(name="ระบบที่จับได้", value=trigger_type, inline=True)
                 embed.add_field(name="สาเหตุ", value=f"`{reason}`", inline=False)
                 await log_channel.send(embed=embed)
-        except Exception as e:
-            print(f"⚠️ Log Error: {e}")
+        except:
+            pass
 
 @bot.event
 async def on_message(message):
-    await bot.process_commands(message)
-
+    # คำสั่งเก่าเราไม่ใช้แล้ว แต่ยังคงฟังก์ชันดักจับ Auto-Mod ไว้
     if message.author.bot or not message.attachments: 
         return
-
-    if message.content.startswith(config.COMMAND_PREFIX):
-        return
-
     if not config.AUTO_MOD_ENABLED:
         return
 
-    # 🌟 รวบรวมไฟล์แนบทั้งหมดที่เป็น "รูปภาพ" มาใส่ List
     image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
-    
     if not image_attachments:
         return
 
-    print(f"📩 [Event] พบรูปภาพ {len(image_attachments)} ภาพ จาก {message.author.name}")
-
-    # 🌟 ลูปสแกนทีละภาพ
     for i, target_image in enumerate(image_attachments):
-        print(f"🖼️ [Auto-Mod] กำลังสแกนภาพที่ {i+1}/{len(image_attachments)}...")
         try:
             async with bot_session.get(target_image.url) as resp:
                 if resp.status == 200:
                     img_data = await resp.read()
-                    
                     is_spam, reason = await analyze_image(img_data)
                     del img_data
                     gc.collect()
 
                     if is_spam:
-                        print(f"🚨 [Auto-Mod] สกัดรูปสแปมสำเร็จที่ภาพที่ {i+1}! หยุดการสแกนภาพที่เหลือ")
                         await punish_user(message, message.author, reason, "Auto-Mod (รูปภาพ)")
-                        break # เบรก Loop ทันทีที่เจอสแปม (ประหยัด RAM)
-        except Exception as e:
-            print(f"❌ [Error] ระบบ Auto-Mod ขัดข้องที่ภาพ {i+1}: {e}")
+                        break 
+        except:
+            pass
 
-@bot.command(name="despam")
-async def despam_image(ctx):
+# ==========================================
+# 🌟 ระบบ Manual-Mod แบบใหม่ (Context Menu)
+# ==========================================
+@bot.tree.context_menu(name="🚨 สแกนสแปม (MaO)")
+async def despam_context_menu(interaction: discord.Interaction, message: discord.Message):
+    # ephemeral=True คือเวทมนตร์ที่ทำให้ข้อความเห็นแค่คนที่กดสั่ง
     if not config.MANUAL_MOD_ENABLED:
-        await ctx.reply(config.MSG_DESPAM_DISABLED)
+        await interaction.response.send_message(config.MSG_DESPAM_DISABLED, ephemeral=True)
         return
 
-    if not ctx.message.reference:
-        await ctx.reply(config.MSG_NEED_REPLY)
-        return
-
-    try:
-        replied_msg = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-    except discord.NotFound:
-        await ctx.reply(config.MSG_MSG_NOT_FOUND)
-        return
-
-    # 🌟 รวบรวมรูปทั้งหมดในข้อความที่ถูก Reply
-    image_attachments = [att for att in replied_msg.attachments if att.content_type and att.content_type.startswith('image/')]
+    image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
 
     if not image_attachments:
-        await ctx.reply(config.MSG_NO_IMAGE)
+        await interaction.response.send_message(config.MSG_NO_IMAGE, ephemeral=True)
         return
 
-    status_msg = await ctx.reply(config.MSG_SCANNING)
+    # ตอบกลับแบบส่วนตัวทันทีว่ากำลังสแกน
+    await interaction.response.send_message(config.MSG_SCANNING, ephemeral=True)
     
     is_spam_found = False
     spam_reason = ""
 
-    # 🌟 ลูปสแกนทีละภาพ
-    for i, target_image in enumerate(image_attachments):
-        await status_msg.edit(content=f"⏳ กำลังตรวจสอบรูปภาพที่ {i+1}/{len(image_attachments)}...")
+    for target_image in image_attachments:
         try:
             async with bot_session.get(target_image.url) as resp:
                 if resp.status == 200:
                     img_data = await resp.read()
-                    
                     is_spam, reason = await analyze_image(img_data)
                     del img_data
                     gc.collect()
@@ -135,16 +148,16 @@ async def despam_image(ctx):
                     if is_spam:
                         is_spam_found = True
                         spam_reason = reason
-                        break # เบรก Loop ทันที
+                        break 
         except Exception as e:
-            print(f"❌ [Error] ระบบ Manual-Mod ขัดข้องที่ภาพ {i+1}: {e}")
+            print(f"❌ [Error] Manual-Mod ขัดข้อง: {e}")
 
-    # สรุปผลลัพธ์หลังจากสแกนจบ (หรือสแกนเจอสแปมกลางคัน)
+    # อัปเดตข้อความส่วนตัวอันเดิม เพื่อแจ้งผลลัพธ์
     if is_spam_found:
-        await status_msg.edit(content=config.MSG_SPAM_FOUND.format(reason=spam_reason))
-        await punish_user(replied_msg, replied_msg.author, spam_reason, f"Manual-Mod (สั่งโดย {ctx.author.name})")
+        await interaction.edit_original_response(content=config.MSG_SPAM_FOUND.format(reason=spam_reason))
+        await punish_user(message, message.author, spam_reason, f"Manual-Mod (สั่งโดย {interaction.user.name})")
     else:
-        await status_msg.edit(content=config.MSG_SAFE)
+        await interaction.edit_original_response(content=config.MSG_SAFE)
 
 if TOKEN:
     keep_alive()
