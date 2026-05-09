@@ -2,8 +2,8 @@ import io
 import re
 import asyncio
 import os
-import psutil  # 🌟 ใช้สำหรับเช็ค RAM
-from PIL import Image
+import psutil
+from PIL import Image, ImageEnhance # 🌟 เพิ่ม ImageEnhance ตรงนี้
 import pytesseract
 from rapidfuzz import fuzz
 import imagehash
@@ -15,20 +15,22 @@ pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
 spam_hash_cache = set()
 
 def get_ram_usage():
-    """ฟังก์ชันช่วยดูการใช้ RAM ปัจจุบัน"""
     process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 / 1024  # แปลงเป็น MB
+    return process.memory_info().rss / 1024 / 1024
 
 def normalize_text(text):
     text = text.lower()
     return re.sub(r'[^a-z0-9ก-ฮ]', '', text)
 
 def process_image(img):
-    width, height = img.size
-    box = (0, height // 2, width, height) 
-    cropped_img = img.crop(box)
-    cropped_img.thumbnail((600, 600))
-    return cropped_img
+    # 🌟 ไม่มีการตัดภาพ (Crop) แล้ว สแกนเต็มใบไปเลย!
+    # เพิ่มความเปรียบต่าง (Contrast) ให้ตัวหนังสือชัดขึ้น AI จะได้ไม่พลาด
+    enhancer = ImageEnhance.Contrast(img)
+    img_enhanced = enhancer.enhance(2.0)
+    
+    # ขยายขีดจำกัดขนาดภาพขึ้นเป็น 1200 เพื่อให้อ่านตัวหนังสือเล็กๆ ได้ 
+    img_enhanced.thumbnail((1200, 1200))
+    return img_enhanced
 
 async def analyze_image(image_bytes):
     start_ram = get_ram_usage()
@@ -41,14 +43,12 @@ async def analyze_image(image_bytes):
         print("💾 [Cache] เจอภาพเดิมในหน่วยความจำ! สั่งแบนทันที")
         return True, "เจอสแปมรูปเดิมที่เคยโดนแบน (ระบบจำภาพ)"
 
-    print("🔍 [AI] กำลังเริ่มอ่านข้อความจากรูปภาพ...")
+    print("🔍 [AI] กำลังเริ่มอ่านข้อความจากรูปภาพเต็มใบ...")
     opt_img = process_image(img)
     raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng')
     norm_text = normalize_text(raw_text)
     
-    # 🌟 จุดสำคัญ: พ่นข้อความที่ AI เห็นออกมาดู
     print(f"📝 [AI Result] ข้อความที่อ่านได้: '{raw_text.strip()}'")
-    print(f"📝 [AI Normalized] ข้อความหลังปรับจูน: '{norm_text}'")
     
     is_spam = False
     reason = ""
