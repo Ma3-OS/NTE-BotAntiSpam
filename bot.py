@@ -1,133 +1,77 @@
-import discord
-from discord.ext import commands
-import aiohttp
-import datetime
-import gc
+import io
+import re
+import asyncio
 import os
-from dotenv import load_dotenv
+import psutil  # 🌟 ใช้สำหรับเช็ค RAM
+from PIL import Image
+import pytesseract
+from rapidfuzz import fuzz
+import imagehash
 
 import config
-from scanner import analyze_image
-from keep_alive import keep_alive
-from messages import get_public_warning, get_dm_warning
+from blacklist import BLACK_LISTED_DOMAINS, BLACK_LISTED_SPAM_PHRASES
 
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-LOG_CHANNEL_ID = os.getenv('LOG_CHANNEL_ID')
+pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
+spam_hash_cache = set()
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+def get_ram_usage():
+    """ฟังก์ชันช่วยดูการใช้ RAM ปัจจุบัน"""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024  # แปลงเป็น MB
 
-bot = commands.Bot(command_prefix=config.COMMAND_PREFIX, intents=intents)
-bot_session = None
+def normalize_text(text):
+    text = text.lower()
+    return re.sub(r'[^a-z0-9ก-ฮ]', '', text)
 
-@bot.event
-async def on_ready():
-    global bot_session
-    bot_session = aiohttp.ClientSession()
-    print(f'🛡️ Bot {bot.user} is ready!')
-    print(f'⚙️ Auto-Mod: {"✅ ON" if config.AUTO_MOD_ENABLED else "❌ OFF"}')
-    print(f'⚙️ Manual-Mod: {"✅ ON" if config.MANUAL_MOD_ENABLED else "❌ OFF"}')
-    print(f'⚙️ Image Hash Cache: {"✅ ON" if config.IMAGE_CACHE_ENABLED else "❌ OFF"}')
+def process_image(img):
+    width, height = img.size
+    box = (0, height // 2, width, height) 
+    cropped_img = img.crop(box)
+    cropped_img.thumbnail((600, 600))
+    return cropped_img
 
-async def punish_user(message_to_delete, target_user, reason, trigger_type):
-    try: await message_to_delete.delete()
-    except discord.Forbidden: pass
+async def analyze_image(image_bytes):
+    start_ram = get_ram_usage()
+    print(f"📊 [RAM] ก่อนสแกน: {start_ram:.2f} MB")
     
-    try: await message_to_delete.channel.send(get_public_warning(target_user.mention), delete_after=60)
-    except: pass
+    img = Image.open(io.BytesIO(image_bytes)).convert('L')
     
-    try: await target_user.send(get_dm_warning(message_to_delete.guild.name))
-    except: pass
+    img_hash = str(imagehash.average_hash(img))
+    if config.IMAGE_CACHE_ENABLED and img_hash in spam_hash_cache:
+        print("💾 [Cache] เจอภาพเดิมในหน่วยความจำ! สั่งแบนทันที")
+        return True, "เจอสแปมรูปเดิมที่เคยโดนแบน (ระบบจำภาพ)"
+
+    print("🔍 [AI] กำลังเริ่มอ่านข้อความจากรูปภาพ...")
+    opt_img = process_image(img)
+    raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng')
+    norm_text = normalize_text(raw_text)
     
-    try: await target_user.timeout(datetime.timedelta(days=1), reason=f"{trigger_type}: {reason}")
-    except: pass
+    # 🌟 จุดสำคัญ: พ่นข้อความที่ AI เห็นออกมาดู
+    print(f"📝 [AI Result] ข้อความที่อ่านได้: '{raw_text.strip()}'")
+    print(f"📝 [AI Normalized] ข้อความหลังปรับจูน: '{norm_text}'")
     
-    if LOG_CHANNEL_ID:
-        try:
-            log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-            if log_channel:
-                embed = discord.Embed(title="🚨 น้อง MaO ทำลายสแปม!", color=discord.Color.red(), timestamp=datetime.datetime.now())
-                embed.add_field(name="คนร้าย", value=target_user.mention, inline=True)
-                embed.add_field(name="ระบบที่จับได้", value=trigger_type, inline=True)
-                embed.add_field(name="สาเหตุ", value=f"`{reason}`", inline=False)
-                await log_channel.send(embed=embed)
-        except Exception as e:
-            print(f"⚠️ Log Error: {e}")
-
-@bot.event
-async def on_message(message):
-    await bot.process_commands(message)
-
-    if message.author.bot or not message.attachments: 
-        return
-
-    if message.content.startswith(config.COMMAND_PREFIX):
-        return
-
-    if not config.AUTO_MOD_ENABLED:
-        return
-
-    target_image = next((att for att in message.attachments if att.content_type and att.content_type.startswith('image/')), None)
+    is_spam = False
+    reason = ""
+    all_blacklists = BLACK_LISTED_DOMAINS + BLACK_LISTED_SPAM_PHRASES
     
-    if target_image:
-        try:
-            async with bot_session.get(target_image.url) as resp:
-                if resp.status == 200:
-                    img_data = await resp.read()
-                    
-                    is_spam, reason = await analyze_image(img_data)
-                    del img_data
-                    gc.collect()
+    for phrase in all_blacklists:
+        if phrase in norm_text:
+            is_spam, reason = True, f"เจอคำต้องห้าม: '{phrase}'"
+            break
+        
+        similarity = fuzz.partial_ratio(phrase, norm_text)
+        if similarity >= config.FUZZY_THRESHOLD:
+            is_spam, reason = True, f"เจอคำคล้าย: '{phrase}' ({similarity}%)"
+            break
 
-                    if is_spam:
-                        print(f"🚨 [Auto-Mod] สกัดรูปสแปมจาก {message.author.name}")
-                        await punish_user(message, message.author, reason, "Auto-Mod (รูปภาพ)")
-        except Exception as e:
-            print(f"Auto-Mod Error: {e}")
+    if is_spam:
+        if config.IMAGE_CACHE_ENABLED:
+            spam_hash_cache.add(img_hash)
+        print(f"🚨 [Match] ตรวจพบสแปม! สาเหตุ: {reason}")
+    else:
+        print("✅ [Match] ไม่พบคำที่ตรงกับ Blacklist")
 
-@bot.command(name="despam")
-async def despam_image(ctx):
-    if not config.MANUAL_MOD_ENABLED:
-        await ctx.reply(config.MSG_DESPAM_DISABLED)
-        return
-
-    if not ctx.message.reference:
-        await ctx.reply(config.MSG_NEED_REPLY)
-        return
-
-    try:
-        replied_msg = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-    except discord.NotFound:
-        await ctx.reply(config.MSG_MSG_NOT_FOUND)
-        return
-
-    target_image = next((att for att in replied_msg.attachments if att.content_type and att.content_type.startswith('image/')), None)
-
-    if not target_image:
-        await ctx.reply(config.MSG_NO_IMAGE)
-        return
-
-    status_msg = await ctx.reply(config.MSG_SCANNING)
-
-    try:
-        async with bot_session.get(target_image.url) as resp:
-            if resp.status == 200:
-                img_data = await resp.read()
-                
-                is_spam, reason = await analyze_image(img_data)
-                del img_data
-                gc.collect()
-
-                if not is_spam:
-                    await status_msg.edit(content=config.MSG_SAFE)
-                else:
-                    await status_msg.edit(content=config.MSG_SPAM_FOUND.format(reason=reason))
-                    await punish_user(replied_msg, replied_msg.author, reason, f"Manual-Mod (สั่งโดย {ctx.author.name})")
-    except Exception as e:
-        await status_msg.edit(content=config.MSG_ERROR.format(error=e))
-
-if TOKEN:
-    keep_alive()
-    bot.run(TOKEN)
+    end_ram = get_ram_usage()
+    print(f"📊 [RAM] หลังสแกน: {end_ram:.2f} MB (ใช้เพิ่มไป: {end_ram - start_ram:.2f} MB)")
+    
+    return is_spam, reason
