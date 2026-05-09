@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 
 import config
 from scanner import analyze_image, analyze_text
-
 from keep_alive import keep_alive
 
 load_dotenv()
@@ -47,8 +46,10 @@ async def on_ready():
 
 async def punish_user(message_to_delete, target_user, reason, trigger_type):
     # 1. ลบข้อความสแปม
-    try: await message_to_delete.delete()
-    except discord.Forbidden: pass
+    try: 
+        await message_to_delete.delete()
+    except discord.Forbidden: 
+        pass
     
     # 2. แจ้งเตือนหน้าห้อง พร้อมระบบเวลานับถอยหลังลบตัวเอง
     try: 
@@ -140,8 +141,10 @@ async def on_message(message):
             
             # ย้อนกลับไปลบทุกข้อความในทุกห้อง
             for log in same_content_logs:
-                try: await log['msg_obj'].delete()
-                except: pass
+                try: 
+                    await log['msg_obj'].delete()
+                except: 
+                    pass
                 
             reason = f"พฤติกรรม Raid: ส่งข้อความเดิมซ้ำกันหลายห้อง ({len(distinct_channels)} ห้อง)"
             await punish_user(message, message.author, reason, "Anti-Raid (Cross-Channel)")
@@ -151,7 +154,7 @@ async def on_message(message):
     # ==========================================
     # 1. 📝 ด่านแรก: สแกนข้อความแชท
     # ==========================================
-if message.content:
+    if message.content:
         print(f"👀 [Debug] บอทได้รับข้อความ: '{message.content}' จาก {message.author.name}")
         is_text_spam, text_reason = analyze_text(message.content)
         if is_text_spam:
