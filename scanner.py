@@ -3,7 +3,7 @@ import re
 import asyncio
 import os
 import psutil
-from PIL import Image, ImageEnhance # 🌟 เพิ่ม ImageEnhance ตรงนี้
+from PIL import Image, ImageEnhance
 import pytesseract
 from rapidfuzz import fuzz
 import imagehash
@@ -15,16 +15,16 @@ pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
 spam_hash_cache = set()
 
 def get_ram_usage():
+    """ฟังก์ชันช่วยดูการใช้ RAM ปัจจุบัน"""
     process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 / 1024
+    return process.memory_info().rss / 1024 / 1024  # แปลงเป็น MB
 
 def normalize_text(text):
     text = text.lower()
     return re.sub(r'[^a-z0-9ก-ฮ]', '', text)
 
 def process_image(img):
-    # 🌟 ไม่มีการตัดภาพ (Crop) แล้ว สแกนเต็มใบไปเลย!
-    # เพิ่มความเปรียบต่าง (Contrast) ให้ตัวหนังสือชัดขึ้น AI จะได้ไม่พลาด
+    # เพิ่มความเปรียบต่าง (Contrast) ให้ตัวหนังสือชัดขึ้น
     enhancer = ImageEnhance.Contrast(img)
     img_enhanced = enhancer.enhance(2.0)
     
@@ -33,6 +33,7 @@ def process_image(img):
     return img_enhanced
 
 async def analyze_image(image_bytes):
+    """ระบบตรวจสอบสแปมจากรูปภาพ (ใช้ AI Tesseract)"""
     start_ram = get_ram_usage()
     print(f"📊 [RAM] ก่อนสแกน: {start_ram:.2f} MB")
     
@@ -45,7 +46,9 @@ async def analyze_image(image_bytes):
 
     print("🔍 [AI] กำลังเริ่มอ่านข้อความจากรูปภาพเต็มใบ...")
     opt_img = process_image(img)
-    raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng')
+    
+    # สแกนภาพเป็นข้อความ (รองรับภาษาอังกฤษและไทยตามที่ติดตั้งไว้ใน Docker)
+    raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng+tha')
     norm_text = normalize_text(raw_text)
     
     print(f"📝 [AI Result] ข้อความที่อ่านได้: '{raw_text.strip()}'")
@@ -67,11 +70,31 @@ async def analyze_image(image_bytes):
     if is_spam:
         if config.IMAGE_CACHE_ENABLED:
             spam_hash_cache.add(img_hash)
-        print(f"🚨 [Match] ตรวจพบสแปม! สาเหตุ: {reason}")
+        print(f"🚨 [Match] ตรวจพบสแปมในรูป! สาเหตุ: {reason}")
     else:
-        print("✅ [Match] ไม่พบคำที่ตรงกับ Blacklist")
+        print("✅ [Match] ไม่พบคำที่ตรงกับ Blacklist ในรูปภาพ")
 
     end_ram = get_ram_usage()
     print(f"📊 [RAM] หลังสแกน: {end_ram:.2f} MB (ใช้เพิ่มไป: {end_ram - start_ram:.2f} MB)")
     
     return is_spam, reason
+
+def analyze_text(text):
+    """
+    ระบบตรวจสอบสแปมจากข้อความแชทโดยเฉพาะ 
+    (ด่านแรกที่ทำงานรวดเร็ว ไม่ใช้ Fuzzy ป้องกันการแบนมั่ว)
+    """
+    # แปลงเป็นตัวพิมพ์เล็กทั้งหมดเพื่อตรวจสอบ
+    norm_text = text.lower()
+    
+    # ตรวจหาลิงก์อันตราย
+    for domain in BLACK_LISTED_DOMAINS:
+        if domain in norm_text:
+            return True, f"เจอลิงก์อันตราย: '{domain}'"
+            
+    # ตรวจหาประโยคสแปม
+    for phrase in BLACK_LISTED_SPAM_PHRASES:
+        if phrase in norm_text:
+            return True, f"เจอประโยคสแปม: '{phrase}'"
+            
+    return False, ""
