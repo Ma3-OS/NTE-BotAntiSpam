@@ -150,7 +150,8 @@ async def on_message(message):
     # ==========================================
     # 1. 📝 ด่านแรก: สแกนข้อความแชท
     # ==========================================
-    if message.content:
+if message.content:
+        print(f"👀 [Debug] บอทได้รับข้อความ: '{message.content}' จาก {message.author.name}")
         is_text_spam, text_reason = analyze_text(message.content)
         if is_text_spam:
             print(f"🚨 [Auto-Mod Text] ตรวจพบข้อความสแปมจาก {message.author.name}!")
