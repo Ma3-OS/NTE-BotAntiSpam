@@ -17,4 +17,4 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # คำสั่งสำหรับเริ่มทำงานบอท
-CMD ["python", "bot.py"]
+CMD ["python", "-u", "bot.py"]
