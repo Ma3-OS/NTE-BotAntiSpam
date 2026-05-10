@@ -1,18 +1,25 @@
-# ไฟล์: blacklist.py
 # ==========================================
 # รายชื่อโดเมน/ลิงก์อันตราย (ลิงก์ฟิชชิ่ง, ลิงก์หลอกหลวง)
 # ==========================================
 BLACK_LISTED_DOMAINS = [
+    # แก๊งดิสคอร์ด/สตรีม
     "discord.gift/", 
     "discrod.gift/", 
     "discord-nitro.", 
     "dlscord.com",            
     "steamcommunity-",        
     "discordapp.com/invite/honey-girl",
-    "discord.com/billing/promotions", # ลิงก์หลอกให้กรอกบัตรเครดิต
+    "discord.com/billing/promotions",
     "free-nitro.com",
     "roblox-robux.com",
-    "opensea-airdrop."        # ลิงก์สแกม NFT/คริปโต
+    "opensea-airdrop.",
+    
+    # แก๊งเว็บสแปมคริปโต
+    "maxbeast",
+    "degambat",
+    "degamb",
+    "velspin",
+    "velspincc"
 ]
 
 # ==========================================
@@ -39,24 +46,11 @@ BLACK_LISTED_SPAM_PHRASES = [
     # 🎰 หมวดหมู่: เว็บพนัน / สล็อต (ภาษาไทย)
     "ปั่นบา",
     "รับปั่นบาคาร่า",
-    "เว็บตรง100%",           
+    "เว็บตรง100%",
     "สล็อตเว็บตรง",
-    "แจกเครดิตฟรี",           
-    "แตกหนัก แตกจริง",
-    "สมัครรับโบนัส",
-    "ฝากถอนไม่มีขั้นต่ำ"
-]
-# แก๊งชื่อโดเมน (แฮกเกอร์มักจะเปลี่ยนบ่อยๆ)
-BLACK_LISTED_DOMAINS = [
-    "maxbeast",
-    "degambat",
-    "degamb",
-    "velspin",
-    "velspincc",
-]
+    "ฝากถอนไม่มีขั้นต่ำ",
 
-# แก๊งคำโฆษณาตายตัว (ถึงเปลี่ยนเว็บ แต่มันก็มักจะใช้คำพวกนี้)
-BLACK_LISTED_SPAM_PHRASES = [
+    # 💰 หมวดหมู่: คริปโตโฆษณาตายตัว (MrBeast)
     "2500usdt",
     "3200usdt",
     "cryptocurrencycasino",
