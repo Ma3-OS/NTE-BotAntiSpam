@@ -33,6 +33,7 @@ BLACK_LISTED_SPAM_PHRASES = [
     "yoo this girl on cam naked",
     "watch me masturbate",
     "my leaked video",
+    "musbeastnet",
     
     # 🎁 หมวดหมู่: หลอกแจกของ / ฟิชชิ่ง
     "free nitro",
