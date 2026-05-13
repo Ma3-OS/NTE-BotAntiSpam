@@ -93,6 +93,18 @@ class ModPanelView(discord.ui.View):
     async def untimeout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.moderate_members):
             return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
+            
+    @discord.ui.button(label="เตะออก", style=discord.ButtonStyle.primary, emoji="🧹")
+    async def kick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.kick_members):
+            return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
+        
+        async def execute(i):
+            try:
+                await self.target_user.kick(reason=f"เตะด่วนโดย {i.user.name}")
+                await i.response.edit_message(content=f"🧹 เตะ {self.target_user.mention} ออกจากเซิร์ฟเวอร์แล้ว!", embed=None, view=None)
+            except Exception as e: await i.response.edit_message(content=f"❌ Error: {e}", embed=None, view=None)
+        await self.prompt_confirm(interaction, "เตะออก (Kick)", execute)
         
         async def execute(i):
             try:
