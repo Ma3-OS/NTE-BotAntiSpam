@@ -8,3 +8,5 @@ imagehash
 pytesseract
 Flask
 psutil
+opencv-python-headless
+numpy
