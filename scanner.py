@@ -94,7 +94,7 @@ async def analyze_image(image_bytes):
             if len(norm_phrase) > 5:
                 similarity = fuzz.partial_ratio(norm_phrase, norm_text)
                 if similarity >= getattr(config, 'FUZZY_THRESHOLD', 85):
-                    is_spam, reason = True, f"เจอคำคล้าย: '{phrase}' ({similarity}%)"
+                    is_spam, reason = True, f"เจอคำคล้าย: '{phrase}' ({int(similarity)}%)"
                     break
 
     if is_spam and getattr(config, 'IMAGE_CACHE_ENABLED', False):
