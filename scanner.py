@@ -51,8 +51,8 @@ async def analyze_image(image_bytes):
         print("💾 [Cache] เจอภาพเดิมในหน่วยความจำ! สั่งแบนทันที")
         return True, "เจอสแปมรูปเดิมที่เคยโดนแบน (ระบบจำภาพ)", img_hash # 🌟 เพิ่ม img_hash
 
-    # สแกนภาพเป็นข้อความ (รองรับภาษาอังกฤษและไทยตามที่ติดตั้งไว้ใน Docker)
-    raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng+tha')
+    # สแกนภาพเป็นข้อความ (โฟกัสแค่ภาษาอังกฤษอย่างเดียว เพื่อความแม่นยำสูงสุด)
+    raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng')
     norm_text = normalize_text(raw_text)
     
     print(f"📝 [AI Result] ข้อความที่อ่านได้: '{raw_text.strip()}'")
