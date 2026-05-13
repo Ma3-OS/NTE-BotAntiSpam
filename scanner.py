@@ -46,7 +46,11 @@ async def analyze_image(image_bytes):
 
     print("🔍 [AI] กำลังเริ่มอ่านข้อความจากรูปภาพเต็มใบ...")
     opt_img = process_image(img)
-    
+
+    if config.IMAGE_CACHE_ENABLED and img_hash in spam_hash_cache:
+        print("💾 [Cache] เจอภาพเดิมในหน่วยความจำ! สั่งแบนทันที")
+        return True, "เจอสแปมรูปเดิมที่เคยโดนแบน (ระบบจำภาพ)", img_hash # 🌟 เพิ่ม img_hash
+
     # สแกนภาพเป็นข้อความ (รองรับภาษาอังกฤษและไทยตามที่ติดตั้งไว้ใน Docker)
     raw_text = await asyncio.to_thread(pytesseract.image_to_string, opt_img, lang='eng+tha')
     norm_text = normalize_text(raw_text)
@@ -56,6 +60,18 @@ async def analyze_image(image_bytes):
     is_spam = False
     reason = ""
     all_blacklists = BLACK_LISTED_DOMAINS + BLACK_LISTED_SPAM_PHRASES
+
+    if is_spam:
+        if config.IMAGE_CACHE_ENABLED:
+            spam_hash_cache.add(img_hash)
+        print(f"🚨 [Match] ตรวจพบสแปมในรูป! สาเหตุ: {reason}")
+    else:
+        print("✅ [Match] ไม่พบคำที่ตรงกับ Blacklist ในรูปภาพ")
+
+    end_ram = get_ram_usage()
+    print(f"📊 [RAM] หลังสแกน: {end_ram:.2f} MB (ใช้เพิ่มไป: {end_ram - start_ram:.2f} MB)")
+    
+    return is_spam, reason, img_hash # 🌟 เพิ่ม img_hash ตรงนี้ด้วย
     
     for phrase in all_blacklists:
         if phrase in norm_text:
