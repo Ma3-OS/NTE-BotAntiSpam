@@ -5,6 +5,7 @@ import datetime
 import gc
 import os
 import time
+import io  # 🌟 เพิ่ม io สำหรับจัดการไฟล์รูปภาพ
 from dotenv import load_dotenv
 
 import config
@@ -25,10 +26,9 @@ bot_session = None
 user_raid_history = {}
 
 # ==========================================
-# 🛑 ระบบเช็คสิทธิ์ (Permissions Check)
+# 🛑 ระบบเช็คสิทธิ์
 # ==========================================
 def has_mod_rights(member: discord.Member, default_permission_check):
-    """เช็คว่ายูสเซอร์มียศที่อนุญาตให้กดปุ่มไหม หรือมีสิทธิ์ Discord พื้นฐานหรือไม่"""
     allowed_roles = getattr(config, 'ALLOWED_MOD_ROLES', [])
     if allowed_roles:
         return any(role.id in allowed_roles for role in member.roles)
@@ -47,16 +47,13 @@ class ConfirmActionView(discord.ui.View):
         self.original_message = original_message
 
     async def on_timeout(self):
-        # ถ้าหมดเวลา ให้ลบปุ่มยืนยันทิ้ง
         for item in self.children: item.disabled = True
         try: await self.message.edit(content="⏳ หมดเวลายืนยันคำสั่ง", view=self, embed=None)
         except: pass
 
     @discord.ui.button(label="ยืนยันคำสั่ง", style=discord.ButtonStyle.success, emoji="✅")
     async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.execute_callback(interaction) # ทำงานจริง
-        
-        # ถ้ายืนยันแล้ว ให้ล็อกปุ่มอันเก่า (Log) ด้วย
+        await self.execute_callback(interaction) 
         if getattr(config, 'HIDE_PANEL_AFTER_ACTION', True) and self.original_message:
             for item in self.original_view.children: item.disabled = True
             try: await self.original_message.edit(view=self.original_view)
@@ -80,8 +77,8 @@ class ModPanelView(discord.ui.View):
         if not getattr(config, 'REQUIRE_CONFIRMATION', True):
             return await execute_callback(interaction)
 
-        embed = discord.Embed(title="⚠️ [ยืนยันคำสั่ง]", description=f"คุณกำลังสั่ง **{action_name}** โปรดตรวจสอบข้อมูลให้ชัวร์:", color=discord.Color.orange())
-        embed.add_field(name="👤 เป้าหมาย", value=f"{self.target_user.mention} (ID: {self.target_user.id})", inline=False)
+        embed = discord.Embed(title="⚠️ [ยืนยันคำสั่ง]", description=f"คุณกำลังสั่ง **{action_name}** โปรดตรวจสอบข้อมูล:", color=discord.Color.orange())
+        embed.add_field(name="👤 เป้าหมาย", value=f"{self.target_user.mention}", inline=False)
         embed.add_field(name="📝 ข้อหา", value=f"`{self.reason}`", inline=False)
         if self.img_hash: embed.add_field(name="🖼️ รหัสภาพ", value=f"`{self.img_hash}`", inline=False)
         
@@ -93,22 +90,13 @@ class ModPanelView(discord.ui.View):
     async def untimeout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.moderate_members):
             return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
-            
-    @discord.ui.button(label="เตะออก", style=discord.ButtonStyle.primary, emoji="🧹")
-    async def kick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.kick_members):
-            return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
-        
         async def execute(i):
             try:
-                await self.target_user.kick(reason=f"เตะด่วนโดย {i.user.name}")
-                await i.response.edit_message(content=f"🧹 เตะ {self.target_user.mention} ออกจากเซิร์ฟเวอร์แล้ว!", embed=None, view=None)
-            except Exception as e: await i.response.edit_message(content=f"❌ Error: {e}", embed=None, view=None)
-        await self.prompt_confirm(interaction, "เตะออก (Kick)", execute)
-        
-        async def execute(i):
-            try:
-                await self.target_user.timeout(None, reason=f"ปลดโดย {i.user.name}")
+                # 🌟 เพิ่มการดึงข้อมูลสมาชิกใหม่ ป้องกัน Error กรณีแชทค้าง
+                member = i.guild.get_member(self.target_user.id)
+                if not member:
+                    return await i.response.edit_message(content="❌ หาตัวผู้ใช้ไม่เจอ (อาจจะออกจากเซิร์ฟเวอร์ไปแล้ว)", embed=None, view=None)
+                await member.timeout(None, reason=f"ปลดโดย {i.user.name}")
                 await i.response.edit_message(content=f"✅ ปลด Timeout ให้ {self.target_user.mention} เรียบร้อย!", embed=None, view=None)
             except Exception as e: await i.response.edit_message(content=f"❌ Error: {e}", embed=None, view=None)
         await self.prompt_confirm(interaction, "ปลด Timeout", execute)
@@ -117,7 +105,6 @@ class ModPanelView(discord.ui.View):
     async def ban_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.ban_members):
             return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
-        
         async def execute(i):
             try:
                 await self.target_user.ban(reason=f"แบนด่วนโดย {i.user.name}")
@@ -125,11 +112,21 @@ class ModPanelView(discord.ui.View):
             except Exception as e: await i.response.edit_message(content=f"❌ Error: {e}", embed=None, view=None)
         await self.prompt_confirm(interaction, "แบนถาวร (Ban)", execute)
 
+    @discord.ui.button(label="เตะออก", style=discord.ButtonStyle.primary, emoji="🧹")
+    async def kick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.kick_members):
+            return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
+        async def execute(i):
+            try:
+                await self.target_user.kick(reason=f"เตะด่วนโดย {i.user.name}")
+                await i.response.edit_message(content=f"🧹 เตะ {self.target_user.mention} ออกแล้ว!", embed=None, view=None)
+            except Exception as e: await i.response.edit_message(content=f"❌ Error: {e}", embed=None, view=None)
+        await self.prompt_confirm(interaction, "เตะออก (Kick)", execute)
+
     @discord.ui.button(label="ลืมภาพนี้", style=discord.ButtonStyle.secondary, emoji="🗑️")
     async def uncache_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not has_mod_rights(interaction.user, lambda: interaction.user.guild_permissions.manage_messages):
             return await interaction.response.send_message("❌ สิทธิ์ไม่พอ!", ephemeral=True)
-        
         async def execute(i):
             from scanner import spam_hash_cache
             if self.img_hash and self.img_hash in spam_hash_cache:
@@ -142,7 +139,7 @@ class ModPanelView(discord.ui.View):
 # ==========================================
 # ระบบลงโทษและส่ง Log
 # ==========================================
-async def punish_user(message_to_delete, target_user, reason, trigger_type, img_hash=None):
+async def punish_user(message_to_delete, target_user, reason, trigger_type, img_hash=None, img_data=None):
     try: await message_to_delete.delete()
     except: pass
     
@@ -153,12 +150,21 @@ async def punish_user(message_to_delete, target_user, reason, trigger_type, img_
         try:
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
             if log_channel:
-                embed = discord.Embed(title="🚨 แจ้งเตือนระบบจับสแปม", color=discord.Color.red(), timestamp=datetime.datetime.now())
+                embed = discord.Embed(title="🚨 น้อง MaO ทำลายสแปม!", color=discord.Color.red(), timestamp=datetime.datetime.now())
                 embed.add_field(name="คนร้าย", value=target_user.mention, inline=True)
                 embed.add_field(name="ระบบที่จับได้", value=trigger_type, inline=True)
                 embed.add_field(name="สาเหตุ", value=f"`{reason}`", inline=False)
                 view = ModPanelView(target_user, reason, img_hash)
-                await log_channel.send(embed=embed, view=view)
+                
+                kwargs = {"embed": embed, "view": view}
+                
+                # 🌟 ถ้าระบบจับภาพสแปมได้ ให้อัปโหลดภาพนั้นลงใน Log ด้วย
+                if img_data:
+                    file = discord.File(io.BytesIO(img_data), filename="spam_evidence.png")
+                    embed.set_image(url="attachment://spam_evidence.png")
+                    kwargs["file"] = file
+
+                await log_channel.send(**kwargs)
         except Exception as e: print(f"Log Error: {e}")
 
 @bot.event
@@ -174,16 +180,10 @@ async def on_message(message):
     if message.author.bot: return
     if not config.AUTO_MOD_ENABLED: return
 
-    # 🛑 เช็คห้องละเว้น
-    if getattr(config, 'IGNORE_CHANNELS', []) and message.channel.id in config.IGNORE_CHANNELS:
-        return
-    
-    # 🛑 เช็คยศละเว้น (VIP / Admin)
+    if getattr(config, 'IGNORE_CHANNELS', []) and message.channel.id in config.IGNORE_CHANNELS: return
     if getattr(config, 'EXEMPT_ROLES', []) and isinstance(message.author, discord.Member):
-        if any(role.id in config.EXEMPT_ROLES for role in message.author.roles):
-            return
+        if any(role.id in config.EXEMPT_ROLES for role in message.author.roles): return
 
-    # ด่าน 1: ข้อความแชท (ถ้าสั้นเกินจะข้าม แต่รูปภาพยังสแกนนะ)
     if message.content:
         min_length = getattr(config, 'IGNORE_SHORT_MESSAGES', 3)
         if len(message.content) > min_length:
@@ -192,7 +192,6 @@ async def on_message(message):
                 await punish_user(message, message.author, text_reason, "Auto-Mod (ข้อความ)")
                 return 
 
-    # ด่าน 2: รูปภาพ
     image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
     if not image_attachments: return
 
@@ -202,12 +201,15 @@ async def on_message(message):
                 if resp.status == 200:
                     img_data = await resp.read()
                     is_spam, reason, img_hash = await analyze_image(img_data)
+                    
+                    if is_spam:
+                        # 🌟 ส่งข้อมูลภาพ (img_data) เข้าไปด้วย
+                        await punish_user(message, message.author, reason, "Auto-Mod (รูปภาพ)", img_hash, img_data)
+                        
+                    # ย้ายการเคลียร์ข้อมูลมาไว้ตรงนี้ ป้องกันบั๊กภาพหาย
                     del img_data
                     gc.collect()
-
-                    if is_spam:
-                        await punish_user(message, message.author, reason, "Auto-Mod (รูปภาพ)", img_hash)
-                        break 
+                    if is_spam: break 
         except: pass
 
 @bot.tree.context_menu(name="🚨 สแกนสแปม (MaO)")
@@ -217,7 +219,7 @@ async def despam_context_menu(interaction: discord.Interaction, message: discord
     if not image_attachments: return await interaction.response.send_message(config.MSG_NO_IMAGE, ephemeral=True)
 
     await interaction.response.send_message(config.MSG_SCANNING, ephemeral=True)
-    is_spam_found, spam_reason, found_hash = False, "", None
+    is_spam_found, spam_reason, found_hash, saved_img_data = False, "", None, None
 
     for target_image in image_attachments:
         try:
@@ -225,16 +227,17 @@ async def despam_context_menu(interaction: discord.Interaction, message: discord
                 if resp.status == 200:
                     img_data = await resp.read()
                     is_spam, reason, img_hash = await analyze_image(img_data)
+                    if is_spam:
+                        is_spam_found, spam_reason, found_hash, saved_img_data = True, reason, img_hash, img_data
                     del img_data
                     gc.collect()
-                    if is_spam:
-                        is_spam_found, spam_reason, found_hash = True, reason, img_hash
-                        break 
+                    if is_spam: break 
         except: pass
 
     if is_spam_found:
         await interaction.edit_original_response(content=config.MSG_SPAM_FOUND.format(reason=spam_reason))
-        await punish_user(message, message.author, spam_reason, f"Manual-Mod ({interaction.user.name})", found_hash)
+        # 🌟 แนบรูปภาพลงไปใน Log จาก Context Menu ด้วย
+        await punish_user(message, message.author, spam_reason, f"Manual-Mod ({interaction.user.name})", found_hash, saved_img_data)
     else: await interaction.edit_original_response(content=config.MSG_SAFE)
 
 if TOKEN:
