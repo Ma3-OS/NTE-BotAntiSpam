@@ -57,8 +57,4 @@ BLACK_LISTED_SPAM_PHRASES = [
     "cryptocurrencycasino",
     "cryptocasino",
     "promocodebeast",
-    "withdrawalsuccess",
-    "activatecodeforbonus",
-    "rewardreceived",
-    "successfullyreceived"
 ]
