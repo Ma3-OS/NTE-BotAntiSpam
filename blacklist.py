@@ -3,7 +3,8 @@
 # ==========================================
 BLACK_LISTED_DOMAINS = [
     # แก๊งดิสคอร์ด/สตรีม
-    "discord.gift/", 
+    "discord.gift/",
+    "xoeawin.com",
     "discrod.gift/", 
     "discord-nitro.", 
     "dlscord.com",            
@@ -36,6 +37,7 @@ BLACK_LISTED_SPAM_PHRASES = [
     "musbeastnet",
     
     # 🎁 หมวดหมู่: หลอกแจกของ / ฟิชชิ่ง
+    "XORA5600",
     "free nitro",
     "steam gift",
     "claim your airdrop",
