@@ -341,6 +341,49 @@ async def punish_user(
     except discord.HTTPException as e:
         logger.error("punish: Failed to timeout user %s: %s", target_user.id, e)
 
+    # ==========================================
+    # 📢 ส่งข้อความแจ้งเตือนหน้าแชท (Public Warning)
+    # ✅ ใช้ delete_after เพื่อลบข้อความอัตโนมัติ — ไม่ต้องสร้าง task แยก
+    # ==========================================
+    public_warning_template = getattr(config, 'PUBLIC_WARNING_MSG', None)
+    if public_warning_template:
+        try:
+            delete_delay = getattr(config, 'WARNING_DELETE_DELAY', 60)
+            delete_time_text = f"ใน {delete_delay} วินาที"
+            warning_text = public_warning_template.format(
+                user_mention=target_user.mention,
+                owner_id=OWNER_ID or "",
+                delete_time=delete_time_text,
+            )
+            await message_to_delete.channel.send(
+                warning_text,
+                delete_after=delete_delay,
+            )
+        except discord.Forbidden:
+            logger.warning("punish: No permission to send public warning in channel %s", message_to_delete.channel.id)
+        except discord.HTTPException as e:
+            logger.error("punish: Failed to send public warning: %s", e)
+
+    # ==========================================
+    # 📩 ส่ง DM แจ้งเตือนส่วนตัวไปหาคนโดน
+    # ✅ ใช้ try/except แยก — บางคนปิด DM ซึ่งเป็น Forbidden error ปกติ
+    # ==========================================
+    dm_warning_template = getattr(config, 'DM_WARNING_MSG', None)
+    if dm_warning_template:
+        try:
+            dm_text = dm_warning_template.format(
+                server_name=message_to_delete.guild.name if message_to_delete.guild else "เซิร์ฟเวอร์",
+                timeout_days=config.TIMEOUT_DAYS,
+                owner_id=OWNER_ID or "",
+            )
+            await target_user.send(dm_text)
+            logger.info("punish: DM warning sent to user %s", target_user.id)
+        except discord.Forbidden:
+            # ปกติมากถ้าผู้ใช้ปิด DM — ไม่ใช่ error ร้ายแรง
+            logger.info("punish: User %s has DMs disabled, skipping DM warning", target_user.id)
+        except discord.HTTPException as e:
+            logger.error("punish: Failed to send DM warning to user %s: %s", target_user.id, e)
+
     if not LOG_CHANNEL_ID:
         return
 
