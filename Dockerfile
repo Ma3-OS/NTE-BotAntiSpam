@@ -1,20 +1,42 @@
-# ใช้ Python 3.10 เวอร์ชันที่ขนาดเล็กและเสถียร
-FROM python:3.10-slim
+# ==========================================
+# ✅ ใช้ python:3.11-slim แทน 3.10
+#    3.11 เร็วกว่า 3.10 ประมาณ 10-25% (better specializing adaptive interpreter)
+# ==========================================
+FROM python:3.11-slim
 
-# ติดตั้งเฉพาะ Tesseract OCR และแพ็กเกจภาษา (ไทย + อังกฤษ)
-RUN apt-get update && apt-get install -y \
+# ==========================================
+# ✅ ติดตั้ง system dependencies
+#    --no-install-recommends ป้องกัน apt ดึงของแถมที่ไม่ต้องการ
+# ==========================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-tha \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    libgl1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# ตั้งค่าโฟลเดอร์ทำงานในเซิร์ฟเวอร์
 WORKDIR /app
 
-# คัดลอกไฟล์ทั้งหมดจากเครื่องเรา (หรือ GitHub) ลงไปในเซิร์ฟเวอร์
-COPY . .
-
-# ติดตั้ง Library ต่างๆ ที่ระบุไว้ใน requirements.txt
+# ==========================================
+# ✅ Copy requirements ก่อน source code
+#    Docker จะ cache layer นี้ไว้ — pip install จะ rebuild เฉพาะเมื่อ requirements.txt เปลี่ยน
+#    ถ้าแก้แค่ bot.py, layer นี้จะถูก cache → build เร็วขึ้นมาก
+# ==========================================
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# คำสั่งสำหรับเริ่มทำงานบอท
+# ✅ Copy source code หลังติดตั้ง dependencies
+COPY . .
+
+# ==========================================
+# ✅ ใช้ non-root user — Security best practice
+#    ป้องกัน process ใน container มีสิทธิ์ root
+# ==========================================
+RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
+USER botuser
+
+# ✅ Health check สำหรับ Docker/Render
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-7860}/health || exit 1
+
 CMD ["python", "-u", "bot.py"]
