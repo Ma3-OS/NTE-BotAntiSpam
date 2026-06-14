@@ -253,31 +253,33 @@ class AntiSpam(commands.Cog):
                     
                 await log_channel.send(**kwargs)
 
-    def check_raid(self, user_id: int) -> bool:
+    def check_raid(self, user_id: int, channel_id: int) -> bool:
         """
-        Check if user sent > 5 messages in 3 seconds across any channels.
+        Check if user sent messages across > threshold DIFFERENT channels in time window.
         Returns True if spam detected.
         """
         if not getattr(config, 'ANTI_RAID_ENABLED', False):
             return False
 
         now = time.monotonic()
-        # Custom rule: 5 messages in 3 seconds
-        window = 3
-        threshold = 5
+        window = getattr(config, 'RAID_TIME_WINDOW', 10)
+        threshold = getattr(config, 'RAID_CHANNEL_THRESHOLD', 3)
 
         history = self.raid_tracker[user_id]
 
-        # Remove expired timestamps
-        while history and now - history[0] > window:
+        # Remove expired timestamps (history stores tuples of (timestamp, channel_id))
+        while history and now - history[0][0] > window:
             history.popleft()
 
-        history.append(now)
+        history.append((now, channel_id))
 
-        if len(history) > threshold:
+        # Count unique channels
+        unique_channels = {ch_id for _, ch_id in history}
+
+        if len(unique_channels) >= threshold:
             # Clear history after trigger to avoid spamming the logs
             del self.raid_tracker[user_id]
-            logger.warning("🚨 Cross-channel Spam detected: user_id=%s sent > %d messages in %ds", user_id, threshold, window)
+            logger.warning("🚨 Cross-channel Spam detected: user_id=%s sent to %d unique channels in %ds", user_id, len(unique_channels), window)
             return True
 
         return False
@@ -301,8 +303,8 @@ class AntiSpam(commands.Cog):
                 return
 
         # 1. Check Rate Limit (Cross-channel Spam)
-        if self.check_raid(message.author.id):
-            await self.punish_user(message, message.author, "ส่งข้อความเร็วเกินไป (> 5 ข้อความใน 3 วิ)", "Anti-Raid (Cross-Channel)")
+        if self.check_raid(message.author.id, message.channel.id):
+            await self.punish_user(message, message.author, "ฟลัดข้อความข้ามห้อง (ส่งสแปมกระจายหลายห้อง)", "Anti-Raid (Cross-Channel)")
             return
 
         # 2. Check attachments vs text
