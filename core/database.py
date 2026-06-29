@@ -3,11 +3,7 @@ import os
 
 # Default static lists
 BLACK_LISTED_DOMAINS = [
-    "discord.gift/",
-    "xoeawin.com",
-    "discrod.gift/", 
-    "discord-nitro.", 
-    "dlscord.com",            
+    "xoeawin.com",      
     "steamcommunity-",        
     "discordapp.com/invite/honey-girl",
     "discord.com/billing/promotions",
